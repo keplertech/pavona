@@ -1,0 +1,2 @@
+najaeda>=0.7.28
+fusesoc
