@@ -1,2 +1,2 @@
-najaeda>=0.7.28
+najaeda==0.7.29
 fusesoc

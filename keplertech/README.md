@@ -58,10 +58,14 @@ on later runs; delete `out/build/<ip>` to regenerate one.
 ```
 
 - `default` mode compiles each file as its own compilation unit.
-- `single` mode (najaeda >= 0.7.28, `SystemVerilogConfig(single_unit=True)`)
+- `single` mode (`SystemVerilogConfig(single_unit=True)`)
   compiles all files as one unit, like Verilator. Some Pavona sources use
   `` `ASSERT `` or `` `PRIM_FLOP_SPARSE_FSM `` without including the file that
   defines them, and only load in this mode.
+
+The script is tied to najaeda 0.7.29, the version used for the results below
+(`NAJAEDA_VERSION` in the script, pinned in `requirements.txt`); it stops if
+another version is installed.
 
 Each IP is loaded in its own subprocess (`-j 4` by default). Results:
 `out/najaeda/<mode>/<ip>/{result.json,naja_sv_diagnostics.log,log.txt}` and
@@ -129,21 +133,10 @@ Reproduce with `najaeda_sweep.py` and `kepler_sweep.py`; the raw tables are in
 | najaeda, default mode | 23/28 | 1,345,184 |
 | najaeda, single-unit mode | 26/28 | 1,615,104 |
 
-najaeda 0.7.29 gives the same results as 0.7.28 (same IPs loaded, same
-primitive counts).
-
 kepler-formal: 26 IPs reached a verdict, all `partial`, with 1,995 of 13,234
-outputs proved (15.1%); 2 were rejected by the frontend (ascon, otp_macro,
-the same two najaeda rejects). No output was found to differ. Compared with
-the previous run (`0e3019d`, 22 verdicts, 1,710/10,778 outputs):
-
-- `--sv_single_unit` lets acc (146/224), spi_host (45/124) and usbdev (5/101)
-  load;
-- keymgr_dpe, which timed out, finishes in 322 s (89/2007);
-- the 22 IPs both runs checked prove exactly the same outputs, in 356 s in
-  total instead of 3,954 s. The speedup comes from the Release build: a
-  non-Release build of the same `b9918a3` sources was as slow as the
-  previous run (for example 32 s on adc_ctrl, 835 s on aes).
+outputs proved (15.1%), in about 13 minutes in total; 2 were rejected by the
+frontend (ascon, otp_macro, the same two najaeda rejects). No output was
+found to differ.
 
 In the IPs examined (uart), the unproved outputs all trace back to register
 flops whose D input kepler reports as having "no drivers during cloud
@@ -153,7 +146,7 @@ Per IP. najaeda primitive counts are the same in both modes whenever an IP
 loads in both, so the mode is only mentioned where it matters; load times are
 for single-unit mode.
 
-| IP | najaeda primitives | najaeda load s | kepler status | proved / outputs | kepler s | notes |
+| IP | najaeda primitives | najaeda load time (s) | kepler status | proved / outputs | kepler time (s) | notes |
 |---|---:|---:|---|---:|---:|---|
 | acc | 235,909 (single-unit only) | 10.87 | partial | 146/224 (65%) | 100 | najaeda default: `PRIM_FLOP_SPARSE_FSM` undefined |
 | adc_ctrl | 21,624 | 0.34 | partial | 4/73 (5%) | 2.1 |  |

@@ -28,6 +28,7 @@ sys.path.insert(0, str(HERE))
 import pavona_flist  # noqa: E402
 
 MODES = ("default", "single")
+NAJAEDA_VERSION = "0.7.29"  # version the README results were produced with
 
 
 def first_errors(diag: Path, n=5):
@@ -108,7 +109,7 @@ def write_summary(results, out: Path):
         ok = [r for r in rows if r["status"] == "ok"]
         md += [f"## {mode}: {len(ok)}/{len(rows)} loaded, "
                f"{sum(r['primitives'] for r in ok)} primitives", "",
-               "| IP | status | load s | instances | primitives | modules | first error |",
+               "| IP | status | load time (s) | instances | primitives | modules | first error |",
                "|---|---|---:|---:|---:|---:|---|"]
         for r in rows:
             md.append(f"| {r['ip']} | {r['status']} | {r.get('seconds', '')} | "
@@ -141,6 +142,13 @@ def main():
         print("RESULT " + json.dumps(res))
         return
 
+    try:
+        installed = metadata.version("najaeda")
+    except metadata.PackageNotFoundError:
+        raise SystemExit(f"najaeda not installed (pip install najaeda=={NAJAEDA_VERSION})")
+    if installed != NAJAEDA_VERSION:
+        raise SystemExit(f"najaeda {installed} installed, {NAJAEDA_VERSION} expected "
+                         f"(pip install najaeda=={NAJAEDA_VERSION})")
     out = args.out.resolve()
     ips = pavona_flist.read_ips(args.ips)
     # Generate file lists up front so parallel jobs never race on fusesoc.

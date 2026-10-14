@@ -125,7 +125,7 @@ def write_summary(results, out, version, extra_args):
           "",
           f"Proved outputs over IPs reaching a verdict: {tot_p}/{tot_o}"
           + (f" ({100 * tot_p / tot_o:.1f}%)" if tot_o else ""), "",
-          "| IP | status | proved/outputs | % | seconds | note |",
+          "| IP | status | proved/outputs | % | time (s) | note |",
           "|---|---|---:|---:|---:|---|"]
     for r in rows:
         po = f"{r['proved']}/{r['outputs']}" if "outputs" in r else ""
