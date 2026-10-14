@@ -70,8 +70,8 @@ the tables `out/najaeda/summary.md` and `summary.json`.
 ## kepler-formal sweep
 
 ```sh
-.venv/bin/python keplertech/kepler_sweep.py --kepler /path/to/kepler-formal
-.venv/bin/python keplertech/kepler_sweep.py uart -- --sec-engine k_induction -k 8
+.venv/bin/python keplertech/kepler_sweep.py --kepler /path/to/kepler-formal -- --sv_single_unit
+.venv/bin/python keplertech/kepler_sweep.py uart -- --sv_single_unit --sec-engine k_induction -k 8
 ```
 
 Each IP is checked with
@@ -81,7 +81,9 @@ kepler-formal -sv --sv_design1_flist <ip>.flist --sv_design1_top <ip> \
                   --sv_design2_flist <ip>.flist --sv_design2_top <ip> -v sec
 ```
 
-plus any arguments given after `--`. Results:
+plus any arguments given after `--`. kepler-formal `b9918a3` and later accept
+`--sv_single_unit`, the equivalent of najaeda's single-unit mode; pass it so
+that acc, spi_host and usbdev load. Results:
 `out/kepler/<ip>/{kepler.log,result.json}` and `out/kepler/summary.md`.
 
 Status values:
@@ -104,14 +106,20 @@ kepler-formal bundles its own naja build, so its SystemVerilog support can
 lag behind the najaeda release used by `najaeda_sweep.py`. `kepler-formal
 --version` prints the bundled naja version, and the summary records it.
 
+Build kepler-formal with `-DCMAKE_BUILD_TYPE=Release`: a non-Release build
+made the sweep about 11x slower and pushed keymgr_dpe past the timeout.
+
+If `PYTHONPATH` points at a local naja build tree, it shadows the najaeda
+installed in the venv; unset it to measure the installed release.
+
 ## Results
 
 Run on the fork's `main` at `cfe8d1f`, on macOS (Apple silicon), with:
 
-- najaeda 0.7.28 (PyPI), fusesoc file lists as described above (2026-10-10);
-- kepler-formal 0.5.0 (git `0e3019d`), which bundles naja 0.7.28 (`545ebd99`),
-  default SEC settings (PDR engine, dual-rail encoding, max k 32), 900 s
-  timeout, one IP at a time (2026-10-11).
+- najaeda 0.7.29 (PyPI), fusesoc file lists as described above (2026-10-14);
+- kepler-formal 0.5.0 (git `b9918a3`, Release build), which bundles naja
+  0.7.28 (`545ebd99`), `--sv_single_unit`, default SEC settings (PDR engine,
+  dual-rail encoding, max k 32), 900 s timeout, one IP at a time (2026-10-14).
 
 Reproduce with `najaeda_sweep.py` and `kepler_sweep.py`; the raw tables are in
 `out/najaeda/summary.md` and `out/kepler/summary.md`.
@@ -121,50 +129,59 @@ Reproduce with `najaeda_sweep.py` and `kepler_sweep.py`; the raw tables are in
 | najaeda, default mode | 23/28 | 1,345,184 |
 | najaeda, single-unit mode | 26/28 | 1,615,104 |
 
-kepler-formal: 22 IPs reached a verdict, all `partial`, with 1,710 of 10,778
-outputs proved (15.9%); 1 timed out (keymgr_dpe); 5 were rejected by the
-frontend. No output was found to differ. The previous build (`91e00fd`,
-naja 0.7.27) reached a verdict on 18 IPs (1,524/5,396 outputs); the new
-build adds aes, spi_device, keymgr and kmac, and proves more outputs on rv_dm
-(126 -> 145) and sram_ctrl (95 -> 99). The overall percentage drops because
-keymgr and kmac add 5,170 outputs with few proved. In the IPs examined
-(uart), the unproved outputs all trace back to register flops whose D input
-kepler reports as having "no drivers during cloud expansion", i.e. an
-extraction limit rather than a design difference.
+najaeda 0.7.29 gives the same results as 0.7.28 (same IPs loaded, same
+primitive counts).
+
+kepler-formal: 26 IPs reached a verdict, all `partial`, with 1,995 of 13,234
+outputs proved (15.1%); 2 were rejected by the frontend (ascon, otp_macro,
+the same two najaeda rejects). No output was found to differ. Compared with
+the previous run (`0e3019d`, 22 verdicts, 1,710/10,778 outputs):
+
+- `--sv_single_unit` lets acc (146/224), spi_host (45/124) and usbdev (5/101)
+  load;
+- keymgr_dpe, which timed out, finishes in 322 s (89/2007);
+- the 22 IPs both runs checked prove exactly the same outputs, in 356 s in
+  total instead of 3,954 s. The speedup comes from the Release build: a
+  non-Release build of the same `b9918a3` sources was as slow as the
+  previous run (for example 32 s on adc_ctrl, 835 s on aes).
+
+In the IPs examined (uart), the unproved outputs all trace back to register
+flops whose D input kepler reports as having "no drivers during cloud
+expansion", i.e. an extraction limit rather than a design difference.
 
 Per IP (najaeda columns are primitive counts; "fail" means the IP did not
 load in that mode):
 
-| IP | najaeda default | najaeda single | load s (single) | kepler status | proved / outputs | kepler s | previous build (`91e00fd`) | notes |
+| IP | najaeda default | najaeda single | load s (single) | kepler status | proved / outputs | kepler s | previous (`0e3019d`) | notes |
 |---|---:|---:|---:|---|---:|---:|---|---|
-| acc | fail | 235,909 | 13.45 | load_fail |  | 2 | same | default: `PRIM_FLOP_SPARSE_FSM` undefined (kepler has no single-unit mode) |
-| adc_ctrl | 21,624 | 21,624 | 0.34 | partial | 4/73 (5%) | 32 | same |  |
-| aes | 98,753 | 98,753 | 2.22 | partial | 23/75 (31%) | 684 | timeout |  |
-| aon_timer | 8,834 | 8,834 | 0.14 | partial | 40/110 (36%) | 16 | same |  |
-| ascon | fail | fail |  | load_fail |  | 0 | same | default: `PRIM_FLOP_SPARSE_FSM` undefined; single: slang rejects implicit conversion to enum `duplex_op_e` |
-| csrng | 77,878 | 77,878 | 3.65 | partial | 23/346 (7%) | 245 | same |  |
-| dma | 106,796 | 106,796 | 3.64 | partial | 91/510 (18%) | 139 | same |  |
-| edn | 52,520 | 52,520 | 0.29 | partial | 23/378 (6%) | 50 | same |  |
-| entropy_src | 117,463 | 117,463 | 5.84 | partial | 24/525 (5%) | 171 | same |  |
-| hmac | 288,706 | 288,706 | 4.07 | partial | 4/75 (5%) | 441 | same |  |
-| i2c | 15,860 | 15,860 | 0.45 | partial | 62/126 (49%) | 41 | same |  |
-| keymgr | 63,710 | 63,710 | 3.65 | partial | 89/2007 (4%) | 888 | load_fail | close to the 900 s timeout |
-| keymgr_dpe | 54,947 | 54,947 | 16.68 | timeout |  | >900 | load_fail | kepler: proof exceeds 900 s |
-| kmac | 204,288 | 204,288 | 20.81 | partial | 5/3163 (0%) | 625 | load_fail |  |
-| lc_ctrl | 42,033 | 42,033 | 0.84 | partial | 350/1320 (27%) | 95 | same |  |
-| mbx | 17,721 | 17,721 | 0.27 | partial | 85/289 (29%) | 29 | same |  |
-| otp_macro | fail | fail |  | load_fail |  | 0 | same | core file misses tlul/prim dependencies |
-| pattgen | 4,868 | 4,868 | 0.15 | partial | 27/78 (35%) | 13 | same |  |
-| rom_ctrl | 23,481 | 23,481 | 1.1 | partial | 389/539 (72%) | 186 | same |  |
-| rv_dm | 31,760 | 31,760 | 0.37 | partial | 145/351 (41%) | 35 | partial 126/351 |  |
-| rv_timer | 5,094 | 5,094 | 0.12 | partial | 59/106 (56%) | 11 | same |  |
-| soc_dbg_ctrl | 7,404 | 7,404 | 0.14 | partial | 50/159 (31%) | 10 | same |  |
-| spi_device | 56,772 | 56,772 | 2.58 | partial | 46/137 (34%) | 165 | timeout |  |
-| spi_host | fail | 14,168 | 0.27 | load_fail |  | 0 | same | default: `` `ASSERT `` undefined (kepler has no single-unit mode) |
-| sram_ctrl | 17,157 | 17,157 | 0.65 | partial | 99/207 (48%) | 38 | partial 95/207 |  |
-| sysrst_ctrl | 22,033 | 22,033 | 0.62 | partial | 12/87 (14%) | 31 | same |  |
-| uart | 5,482 | 5,482 | 0.14 | partial | 60/117 (51%) | 10 | same |  |
-| usbdev | fail | 19,843 | 0.72 | load_fail |  | 1 | same | default: `` `ASSERT `` undefined (kepler has no single-unit mode) |
+| acc | fail | 235,909 | 10.87 | partial | 146/224 (65%) | 100 | load_fail (was 2 s) | najaeda default: `PRIM_FLOP_SPARSE_FSM` undefined |
+| adc_ctrl | 21,624 | 21,624 | 0.34 | partial | 4/73 (5%) | 2.1 | same (was 32 s) |  |
+| aes | 98,753 | 98,753 | 2.09 | partial | 23/75 (31%) | 50 | same (was 684 s) |  |
+| aon_timer | 8,834 | 8,834 | 0.14 | partial | 40/110 (36%) | 1.0 | same (was 16 s) |  |
+| ascon | fail | fail |  | load_fail |  | 0.1 | same (was 0 s) | default: `PRIM_FLOP_SPARSE_FSM` undefined; single: slang rejects implicit conversion to enum `duplex_op_e` |
+| csrng | 77,878 | 77,878 | 2.75 | partial | 23/346 (7%) | 19 | same (was 245 s) |  |
+| dma | 106,796 | 106,796 | 2.56 | partial | 91/510 (18%) | 16 | same (was 139 s) |  |
+| edn | 52,520 | 52,520 | 0.27 | partial | 23/378 (6%) | 3.4 | same (was 50 s) |  |
+| entropy_src | 117,463 | 117,463 | 3.91 | partial | 24/525 (5%) | 15 | same (was 171 s) |  |
+| hmac | 288,706 | 288,706 | 2.94 | partial | 4/75 (5%) | 40 | same (was 441 s) |  |
+| i2c | 15,860 | 15,860 | 0.42 | partial | 62/126 (49%) | 2.5 | same (was 41 s) |  |
+| keymgr | 63,710 | 63,710 | 3.14 | partial | 89/2007 (4%) | 66 | same (was 888 s) |  |
+| keymgr_dpe | 54,947 | 54,947 | 15.35 | partial | 89/2007 (4%) | 322 | timeout (was 900 s) | same outputs and result as keymgr |
+| kmac | 204,288 | 204,288 | 19.83 | partial | 5/3163 (0%) | 82 | same (was 625 s) |  |
+| lc_ctrl | 42,033 | 42,033 | 0.74 | partial | 350/1320 (27%) | 9.4 | same (was 95 s) |  |
+| mbx | 17,721 | 17,721 | 0.19 | partial | 85/289 (29%) | 1.7 | same (was 29 s) |  |
+| otp_macro | fail | fail |  | load_fail |  | 0.0 | same (was 0 s) | core file misses tlul/prim dependencies |
+| pattgen | 4,868 | 4,868 | 0.11 | partial | 27/78 (35%) | 0.8 | same (was 13 s) |  |
+| rom_ctrl | 23,481 | 23,481 | 0.96 | partial | 389/539 (72%) | 22 | same (was 186 s) |  |
+| rv_dm | 31,760 | 31,760 | 0.34 | partial | 145/351 (41%) | 2.9 | same (was 35 s) |  |
+| rv_timer | 5,094 | 5,094 | 0.11 | partial | 59/106 (56%) | 0.7 | same (was 11 s) |  |
+| soc_dbg_ctrl | 7,404 | 7,404 | 0.12 | partial | 50/159 (31%) | 0.7 | same (was 10 s) |  |
+| spi_device | 56,772 | 56,772 | 2.23 | partial | 46/137 (34%) | 12 | same (was 165 s) |  |
+| spi_host | fail | 14,168 | 0.2 | partial | 45/124 (36%) | 1.5 | load_fail (was 0 s) | najaeda default: `` `ASSERT `` undefined |
+| sram_ctrl | 17,157 | 17,157 | 0.52 | partial | 99/207 (48%) | 4.6 | same (was 38 s) |  |
+| sysrst_ctrl | 22,033 | 22,033 | 0.52 | partial | 12/87 (14%) | 2.4 | same (was 31 s) |  |
+| uart | 5,482 | 5,482 | 0.13 | partial | 60/117 (51%) | 0.7 | same (was 10 s) |  |
+| usbdev | fail | 19,843 | 0.64 | partial | 5/101 (5%) | 3.5 | load_fail (was 1 s) | najaeda default: `` `ASSERT `` undefined |
 
 ## Known Pavona-side issues
 
@@ -174,4 +191,5 @@ load in that mode):
   `lowrisc:prim:reg_we_check`), so it fails standalone with unknown modules.
 - `ascon`: slang rejects implicit conversions to enum types (for example
   `logic[2:0]` to `duplex_op_e` in `ascon_core.sv`).
-- `acc`, `spi_host`, `usbdev`: only load in single-unit mode (see above).
+- `acc`, `spi_host`, `usbdev`: only load in single-unit mode (najaeda
+  `single_unit=True`, kepler-formal `--sv_single_unit`), see above.
