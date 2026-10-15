@@ -94,8 +94,8 @@ Status values:
 
 | status | meaning |
 |---|---|
-| `proved` | all observed outputs proved equivalent |
-| `partial` | some outputs proved; the rest skipped by extraction or coverage limits |
+| `proved` | all observed outputs proved equivalent (with the default dual-rail encoding: no binary-defined difference) |
+| `partial` | some outputs proved; the rest skipped by extraction limits or left inconclusive by the engine |
 | `not_equivalent` | counterexample found (should never happen for a self-check) |
 | `inconclusive` | no proof and no counterexample |
 | `load_fail` | the SystemVerilog frontend rejected the design |
@@ -121,9 +121,9 @@ installed in the venv; unset it to measure the installed release.
 Run on the fork's `main` at `cfe8d1f`, on macOS (Apple silicon), with:
 
 - najaeda 0.7.29 (PyPI), fusesoc file lists as described above (2026-10-14);
-- kepler-formal 0.5.0 (git `b9918a3`, Release build), which bundles naja
-  0.7.28 (`545ebd99`), `--sv_single_unit`, default SEC settings (PDR engine,
-  dual-rail encoding, max k 32), 900 s timeout, one IP at a time (2026-10-14).
+- kepler-formal 0.5.0 (git `c7bf059`, Release build), which bundles naja
+  0.7.29 (`3da8811d`), `--sv_single_unit`, default SEC settings (PDR engine,
+  dual-rail encoding, max k 32), 900 s timeout, one IP at a time (2026-10-15).
 
 Reproduce with `najaeda_sweep.py` and `kepler_sweep.py`; the raw tables are in
 `out/najaeda/summary.md` and `out/kepler/summary.md`.
@@ -133,14 +133,23 @@ Reproduce with `najaeda_sweep.py` and `kepler_sweep.py`; the raw tables are in
 | najaeda, default mode | 23/28 | 1,345,184 |
 | najaeda, single-unit mode | 26/28 | 1,615,104 |
 
-kepler-formal: 26 IPs reached a verdict, all `partial`, with 1,995 of 13,234
-outputs proved (15.1%), in about 13 minutes in total; 2 were rejected by the
-frontend (ascon, otp_macro, the same two najaeda rejects). No output was
-found to differ.
+kepler-formal: 26 IPs reached a verdict, 14 `proved` and 12 `partial`, with
+11,304 of 13,234 outputs proved (85.4%), in about 27 minutes in total; 2 were
+rejected by the frontend (ascon, otp_macro, the same two najaeda rejects). No
+output was found to differ.
 
-In the IPs examined (uart), the unproved outputs all trace back to register
-flops whose D input kepler reports as having "no drivers during cloud
-expansion", i.e. an extraction limit rather than a design difference.
+In the `partial` IPs, the unproved outputs come from three sources:
+
+- extraction skips: cones that kepler drops because a net in them has no
+  driver or several drivers in the elaborated netlist (uart: `uart_rx`;
+  lc_ctrl: the FSM state flops; rv_dm: `i_dm_csrs`; aes: the cipher core;
+  acc: `u_acc_scramble_ctrl` and `u_imem`; rom_ctrl: `u_prim_rom`). These
+  point at frontend lowering issues, not design differences;
+- latches, which SEC doesn't support yet: outputs behind a clock-gate latch
+  (`naja_dlatch`) are skipped (dma: `dma_clk_gate`, 396 outputs;
+  spi_device: `u_pt_sck_cg`);
+- outputs the PDR engine leaves inconclusive (i2c, sram_ctrl, keymgr,
+  keymgr_dpe).
 
 Per IP. najaeda primitive counts are the same in both modes whenever an IP
 loads in both, so the mode is only mentioned where it matters; load times are
@@ -148,34 +157,34 @@ for single-unit mode.
 
 | IP | najaeda primitives | najaeda load time (s) | kepler status | proved / outputs | kepler time (s) | notes |
 |---|---:|---:|---|---:|---:|---|
-| acc | 235,909 (single-unit only) | 10.87 | partial | 146/224 (65%) | 100 | najaeda default: `PRIM_FLOP_SPARSE_FSM` undefined |
-| adc_ctrl | 21,624 | 0.34 | partial | 4/73 (5%) | 2.1 |  |
-| aes | 98,753 | 2.09 | partial | 23/75 (31%) | 50 |  |
-| aon_timer | 8,834 | 0.14 | partial | 40/110 (36%) | 1.0 |  |
+| acc | 235,909 (single-unit only) | 10.87 | partial | 146/224 (65%) | 435 | najaeda default: `PRIM_FLOP_SPARSE_FSM` undefined |
+| adc_ctrl | 21,624 | 0.34 | proved | 73/73 (100%) | 1.8 |  |
+| aes | 98,753 | 2.09 | partial | 27/75 (36%) | 18 |  |
+| aon_timer | 8,834 | 0.14 | proved | 110/110 (100%) | 0.8 |  |
 | ascon | fail |  | load_fail |  | 0.1 | default: `PRIM_FLOP_SPARSE_FSM` undefined; single: slang rejects implicit conversion to enum `duplex_op_e` |
-| csrng | 77,878 | 2.75 | partial | 23/346 (7%) | 19 |  |
-| dma | 106,796 | 2.56 | partial | 91/510 (18%) | 16 |  |
-| edn | 52,520 | 0.27 | partial | 23/378 (6%) | 3.4 |  |
-| entropy_src | 117,463 | 3.91 | partial | 24/525 (5%) | 15 |  |
-| hmac | 288,706 | 2.94 | partial | 4/75 (5%) | 40 |  |
-| i2c | 15,860 | 0.42 | partial | 62/126 (49%) | 2.5 |  |
-| keymgr | 63,710 | 3.14 | partial | 89/2007 (4%) | 66 |  |
-| keymgr_dpe | 54,947 | 15.35 | partial | 89/2007 (4%) | 322 | same outputs and result as keymgr |
-| kmac | 204,288 | 19.83 | partial | 5/3163 (0%) | 82 |  |
-| lc_ctrl | 42,033 | 0.74 | partial | 350/1320 (27%) | 9.4 |  |
-| mbx | 17,721 | 0.19 | partial | 85/289 (29%) | 1.7 |  |
+| csrng | 77,878 | 2.75 | proved | 346/346 (100%) | 18 |  |
+| dma | 106,796 | 2.56 | partial | 114/510 (22%) | 16 |  |
+| edn | 52,520 | 0.27 | proved | 378/378 (100%) | 5.4 |  |
+| entropy_src | 117,463 | 3.91 | proved | 525/525 (100%) | 26 |  |
+| hmac | 288,706 | 2.94 | proved | 75/75 (100%) | 159 |  |
+| i2c | 15,860 | 0.42 | partial | 125/126 (99%) | 7.2 |  |
+| keymgr | 63,710 | 3.14 | partial | 1943/2007 (96%) | 193 |  |
+| keymgr_dpe | 54,947 | 15.35 | partial | 1976/2007 (98%) | 389 |  |
+| kmac | 204,288 | 19.83 | proved | 3163/3163 (100%) | 222 |  |
+| lc_ctrl | 42,033 | 0.74 | partial | 354/1320 (26%) | 8.7 |  |
+| mbx | 17,721 | 0.19 | proved | 289/289 (100%) | 3.5 |  |
 | otp_macro | fail |  | load_fail |  | 0.0 | core file misses tlul/prim dependencies |
-| pattgen | 4,868 | 0.11 | partial | 27/78 (35%) | 0.8 |  |
-| rom_ctrl | 23,481 | 0.96 | partial | 389/539 (72%) | 22 |  |
-| rv_dm | 31,760 | 0.34 | partial | 145/351 (41%) | 2.9 |  |
-| rv_timer | 5,094 | 0.11 | partial | 59/106 (56%) | 0.7 |  |
-| soc_dbg_ctrl | 7,404 | 0.12 | partial | 50/159 (31%) | 0.7 |  |
-| spi_device | 56,772 | 2.23 | partial | 46/137 (34%) | 12 |  |
-| spi_host | 14,168 (single-unit only) | 0.2 | partial | 45/124 (36%) | 1.5 | najaeda default: `` `ASSERT `` undefined |
-| sram_ctrl | 17,157 | 0.52 | partial | 99/207 (48%) | 4.6 |  |
-| sysrst_ctrl | 22,033 | 0.52 | partial | 12/87 (14%) | 2.4 |  |
-| uart | 5,482 | 0.13 | partial | 60/117 (51%) | 0.7 |  |
-| usbdev | 19,843 (single-unit only) | 0.64 | partial | 5/101 (5%) | 3.5 | najaeda default: `` `ASSERT `` undefined |
+| pattgen | 4,868 | 0.11 | proved | 78/78 (100%) | 0.6 |  |
+| rom_ctrl | 23,481 | 0.96 | partial | 418/539 (77%) | 23 |  |
+| rv_dm | 31,760 | 0.34 | partial | 196/351 (55%) | 3.2 |  |
+| rv_timer | 5,094 | 0.11 | proved | 106/106 (100%) | 0.5 |  |
+| soc_dbg_ctrl | 7,404 | 0.12 | proved | 159/159 (100%) | 0.6 |  |
+| spi_device | 56,772 | 2.23 | partial | 135/137 (98%) | 22 |  |
+| spi_host | 14,168 (single-unit only) | 0.2 | proved | 124/124 (100%) | 26 | najaeda default: `` `ASSERT `` undefined |
+| sram_ctrl | 17,157 | 0.52 | partial | 168/207 (81%) | 46 |  |
+| sysrst_ctrl | 22,033 | 0.52 | proved | 87/87 (100%) | 2.6 |  |
+| uart | 5,482 | 0.13 | partial | 88/117 (75%) | 1.4 |  |
+| usbdev | 19,843 (single-unit only) | 0.64 | proved | 101/101 (100%) | 4.8 | najaeda default: `` `ASSERT `` undefined |
 
 ## Known Pavona-side issues
 

@@ -28,9 +28,10 @@ import pavona_flist  # noqa: E402
 
 VERDICTS = [  # (status, pattern) in priority order, from KeplerFormal.cpp
     ("not_equivalent", re.compile(r"SEC found a counterexample at k = (\d+)")),
-    ("proved", re.compile(r"SEC proved .*?equivalence at k = (\d+)")),
+    ("proved", re.compile(r"SEC proved equivalence (?:under .*? )?at k = (\d+)")),
     ("partial", re.compile(r"SEC partially proved equivalence at k = (\d+)")),
-    ("inconclusive", re.compile(r"SEC verification did not produce a proof or counterexample")),
+    ("inconclusive", re.compile(r"SEC verification did not produce a proof or counterexample"
+                                r"|SEC was inconclusive")),
 ]
 COVERAGE = re.compile(r"SEC checked-output coverage: [\d.]+% \((\d+)/(\d+)")
 PARTIAL = re.compile(r"partially proved equivalence at k = \d+: (\d+)/(\d+) outputs proved")
