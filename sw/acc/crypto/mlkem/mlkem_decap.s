@@ -31,18 +31,17 @@
 .equ HARDENED_BOOL_TRUE, 0x739
 .equ HARDENED_BOOL_FALSE, 0x1d4
 
+#ifndef HARDENED
 /**
  * Decapsulation for the CCA-secure ML-KEM key encapsulation mechanism.
  *
  * Uses the decapsulation key to produce a shared secret key from a ciphertext.
  *
- * Let d = NSHARES.
  *  Step 1: extract keys.
- *      dk_pke = dk[0 : 384 * k * d]                                    // NSHARES shares
- *      ek_pke = dk[384 * k * d : 384 * k * d + 768 * k + 32]           // rho of ek_pke is not masked
- *      h = dk[384 * k * d + 768 * k + 32 : 384 * k * d + 768 * k + 64] // H(ek) is not masked
- *      z = dk[384 * k * d + 768 * k + 64 :
- *             384 * k * d + 768 * k + 64 + 32 * d]                     // NSHARES shares
+ *      dk_pke = dk[0 : 384 * k]
+ *      ek_pke = dk[384 * k : 768 * k + 32]
+ *      h      = dk[768 * k + 32 : 768 * k + 64]
+ *      z      = dk[768 * k + 64 : 768 * k + 96]
  *  Step 2: m' = indcpa_dec(c, dk_pke)
  *  Step 3: (K_true, r') <- SHA3-512(m' || h)
  *  Step 4: K_false <- SHAKE256(z || c)
@@ -50,27 +49,57 @@
  *  Step 6: if cp != c: ss <- K_false; else, ss <- K_true.
  *
  * @param[in]  x10: dmem pointer to the input ciphertext c
- * @param[in]  x11: dmem pointer to the input masked secret key dk
+ * @param[in]  x11: dmem pointer to the input secret key dk
  * @param[out] x12: dmem pointer to the output shared secret ss
  * @param[in]  x13: k, the security level
  * @param[in]  w16 (sw0): sw0.0 = q = 3329 (1st 16-bit lane),
  *                        sw0.2 = -q^-1 mod 2^16 = 3327 (3rd 16-bit lane)
  * @param[in]  w31: all-zero register
  *
- * UNPROTECTED
- * clobbered registers: x2 to x15, x18 to x19, x21 to x28,
+ * clobbered registers: x2 to x13, x15, x18 to x19, x21 to x28,
  *                      w0 to w15, w17 to w26, mod, acch, acc
- * clobbered flag groups: FG0
- *
- * HARDENED
- * clobbered registers: x2 to x19, x21 to x31,
- *                      w0 to w15, w17 to w30, acc, mod, acch
  * clobbered flag groups: FG0
  */
 
 .globl crypto_kem_dec
 .type crypto_kem_dec, @function
 crypto_kem_dec:
+#else
+/**
+ * Masked decapsulation for the CCA-secure ML-KEM key encapsulation mechanism.
+ *
+ * Uses the masked decapsulation key to produce a shared secret key from a
+ * ciphertext.
+ *  Step 1: extract keys.
+ *      dk_pke = dk[0 : 2 * 384 * k]                         // two shares
+ *      ek_pke = dk[2 * 384 * k : 2 * 384 * k + 384 * k + 32] // not masked
+ *      Let o = 2 * 384 * k + 384 * k + 32.
+ *      h      = dk[o : o + 32]                              // not masked
+ *      z      = dk[o + 32 : o + 32 + 2 * 32]                // two shares
+ *  Step 2: m' = indcpa_dec_hardened(c, dk_pke)
+ *  Step 3: (K_true, r') <- SHA3-512(m' || h)
+ *  Step 4: K_false <- SHAKE256(z || c)
+ *  Step 5: w0 <- indcpa_enc_cmp_hardened(m', ek_pke, r', c)
+ *  Step 6: if cp != c: ss <- K_false; else, ss <- K_true.
+ *
+ * @param[in]  x10: dmem pointer to the input ciphertext c
+ * @param[in]  x11: dmem pointer to the input masked secret key dk
+ * @param[out] x12: dmem pointer to the output shared secret ss
+ *                  (two Boolean shares, 2 * 32 bytes)
+ * @param[in]  x13: k, the security level
+ * @param[in]  w16 (sw0): sw0.0 = q = 3329 (1st 16-bit lane),
+ *                        sw0.2 = -q^-1 mod 2^16 = 3327 (3rd 16-bit lane)
+ * @param[in]  w31: all-zero register
+ *
+ * clobbered registers: x2 to x19, x21 to x31,
+ *                      w0 to w15, w17 to w30, acc, mod, acch
+ * clobbered flag groups: FG0
+ */
+
+.globl crypto_kem_dec_hardened
+.type crypto_kem_dec_hardened, @function
+crypto_kem_dec_hardened:
+#endif
   addi x4, x0, 2
   beq  x13, x4, _save_k2_ptrs
   addi x4, x0, 3
@@ -101,7 +130,6 @@ _continue:
   add  x6, x0, x7
   sw   x6, 0(x5)
   /* The public key pk_pke for indcpa_enc_cmp. */
-  add  x6, x11, x0
   add  x5, x0, x8
   slli x5, x5, NSHARESm1
   add  x6, x11, x5
@@ -165,7 +193,11 @@ _kem_dec_sk_ok:
   /* x11 already points to dk_pke. */
   la  x12, m
   /* x13 is already the security level k. */
+#ifndef HARDENED
   jal x1, indcpa_dec
+#else
+  jal x1, indcpa_dec_hardened
+#endif
 
   /*** Step 3: (K_true, r') <- SHA3-512(m' || h). ***/
 #ifdef HARDENED
@@ -177,9 +209,8 @@ _kem_dec_sk_ok:
    * account the special order of the message m. */
   la   x5, m
   la   x6, mtmp
-  addi x4, x0, 1
   loopi 2, 11
-    bn.lid x0, 0(x5++)
+    bn.ld  w0, 0(x5++)
     loopi 16, 5
       bn.shv.16h w2, w0 >> 15
       loopi 16, 2
@@ -188,7 +219,7 @@ _kem_dec_sk_ok:
       endloop
       bn.shv.16h w0, w0 << 1
     endloop
-    bn.sid x4, 0(x6++)
+    bn.sd  w1, 0(x6++)
     /* Whitening. */
     bn.xor w0, w31, w31
     bn.xor w1, w31, w31
@@ -205,33 +236,33 @@ _kem_dec_sk_ok:
   csrrw   x0, kmac_cfg, x5
   /* Send m. */
   la      x5, mtmp
-  bn.lid  x0, 0(x5++)
+  bn.ld   w0, 0(x5++)
   bn.wsrw kmac_msg, w0  /* m[0] */
   bn.xor  w0, w31, w31  /* Whitening. */
-  bn.lid  x0, 0(x5)
+  bn.ld   w0, 0(x5)
   bn.wsrw kmac_msg1, w0 /* m[1] */
   bn.xor  w0, w31, w31  /* Whitening. */
   /* Send h. */
   la      x5, dptr_h
   lw      x5, 0(x5)
-  bn.lid  x0, 0(x5)
+  bn.ld   w0, 0(x5)
   bn.wsrw kmac_msg, w0  /* h */
   bn.xor  w0, w31, w31
   bn.wsrw kmac_msg1, w0 /* 0 */
   /* Retrieve K_true. */
   la      x5, kr
   bn.wsrr w0, kmac_digest
-  bn.sid  x0, 0(x5++)
+  bn.sd   w0, 0(x5++)
   bn.xor  w0, w31, w31  /* Whitening. */
   bn.wsrr w0, kmac_digest1
-  bn.sid  x0, 0(x5++)
+  bn.sd   w0, 0(x5++)
   bn.xor  w0, w31, w31  /* Whitening. */
   /* Retrieve r'. */
   bn.wsrr w0, kmac_digest
-  bn.sid  x0, 0(x5++)
+  bn.sd   w0, 0(x5++)
   bn.xor  w0, w31, w31  /* Whitening. */
   bn.wsrr w0, kmac_digest1
-  bn.sid  x0, 0(x5++)
+  bn.sd   w0, 0(x5++)
   bn.xor  w0, w31, w31  /* Whitening. */
 
 #else
@@ -242,20 +273,20 @@ _kem_dec_sk_ok:
   csrrw   x0, kmac_cfg, x5
   /* Send m. */
   la      x5, m
-  bn.lid  x0, 0(x5)
+  bn.ld   w0, 0(x5)
   bn.wsrw kmac_msg, w0
   /* Send h. */
   la      x5, dptr_h
   lw      x5, 0(x5)
-  bn.lid  x0, 0(x5)
+  bn.ld   w0, 0(x5)
   bn.wsrw kmac_msg, w0
   /* Retrieve K_true. */
   la      x5, kr
   bn.wsrr w0, kmac_digest
-  bn.sid  x0, 0(x5++)
+  bn.sd   w0, 0(x5++)
   /* Retrieve r'. */
   bn.wsrr w0, kmac_digest
-  bn.sid  x0, 0(x5++)
+  bn.sd   w0, 0(x5++)
 #endif
 
   /*** Step 4: K_false <- SHAKE256(z || c). ***/
@@ -275,11 +306,11 @@ _kem_dec_sk_ok:
   /* Send z. */
   la      x5, dptr_h
   lw      x5, 0(x5)
-  bn.lid  x0, 32(x5)
+  bn.ld   w0, 32(x5)
   bn.wsrw kmac_msg, w0
 #ifdef HARDENED
   bn.xor  w0, w31, w31 /* Whitening. */
-  bn.lid  x0, 64(x5)
+  bn.ld   w0, 64(x5)
   bn.wsrw kmac_msg1, w0
   bn.xor  w0, w31, w31 /* Whitening. */
 #endif
@@ -292,27 +323,27 @@ _kem_dec_sk_ok:
   srli x5, x5, 5
 #ifdef HARDENED
   loop x5, 3
-    bn.lid  x0, 0(x10++)
+    bn.ld   w0, 0(x10++)
     bn.wsrw kmac_msg, w0
     bn.wsrw kmac_msg1, w31
   endloop
   /* Retrieve K_false. */
   la      x5, ss_false
   bn.wsrr w0, kmac_digest
-  bn.sid  x0, 0(x5++)
+  bn.sd   w0, 0(x5++)
   bn.xor  w0, w31, w31 /* Whitening. */
   bn.wsrr w0, kmac_digest1
-  bn.sid  x0, 0(x5)
+  bn.sd   w0, 0(x5)
   bn.xor  w0, w31, w31 /* Whitening. */
 #else
   loop x5, 2
-    bn.lid  x0, 0(x10++)
+    bn.ld   w0, 0(x10++)
     bn.wsrw kmac_msg, w0
   endloop
   /* Retrieve K_false. */
   la      x5, ss_false
   bn.wsrr w0, kmac_digest
-  bn.sid  x0, 0(x5)
+  bn.sd   w0, 0(x5)
 #endif
 
   /*** Step 5: w0 <- indcpa_enc_cmp(m', ek_pke, r', c). ***/
@@ -325,25 +356,27 @@ _kem_dec_sk_ok:
   addi x12, x12, RP_BYTES
   la   x5, dptr_ct
   lw   x13, 0(x5)
-  addi x14, x0, NSHARES
   la   x5, k
   lw   x15, 0(x5)
+#ifndef HARDENED
   jal  x1, indcpa_enc_cmp
+#else
+  jal  x1, indcpa_enc_cmp_hardened
+#endif
 
   /*** Step 6: if cp != c: K_true <- K_false. Return K_true. ***/
 #ifndef HARDENED
   la      x5, kr
-  addi    x4, x0, 1
-  bn.lid  x4++, 0(x5) /* Load true key. */
+  bn.ld   w1, 0(x5)   /* Load true key. */
   la      x5, ss_false
-  bn.lid  x4, 0(x5)   /* Load false key. */
+  bn.ld   w2, 0(x5)   /* Load false key. */
   bn.xor  w3, w1, w2
   /* w0 is the comparison result: 0 if equal, all ones otherwise. */
   bn.and  w3, w3, w0
   bn.xor  w0, w1, w3
   la      x5, dptr_ss
   lw      x5, 0(x5)
-  bn.sid  x0, 0(x5)
+  bn.sd   w0, 0(x5)
   ret
 #else
   la      x5, kr
@@ -364,11 +397,11 @@ _fail:
 _end:
   /* Copy the selected key one share at a time, whitening after each share so
    * that the two shares never meet in w0 or on the store data path. */
-  bn.lid  x0, 0(x5)
-  bn.sid  x0, 0(x6)
+  bn.ld   w0, 0(x5)
+  bn.sd   w0, 0(x6)
   bn.xor  w0, w31, w31 /* Whitening. */
-  bn.lid  x0, 32(x5)
-  bn.sid  x0, 32(x6)
+  bn.ld   w0, 32(x5)
+  bn.sd   w0, 32(x6)
   bn.xor  w0, w31, w31 /* Whitening. */
   ret
 #endif
@@ -403,14 +436,13 @@ check_sk:
 
   srli  x11, x11, 5
   loop  x11, 2
-    bn.lid  x0, 0(x10++)
+    bn.ld   w0, 0(x10++)
     bn.wsrw kmac_msg, w0
   endloop
   bn.wsrr w8, kmac_digest
 
   /* Compare against the stored hash. */
-  add     x5, x0, x0
-  bn.lid  x5, 0(x6)
+  bn.ld   w0, 0(x6)
   bn.cmp  w8, w0
   csrrs   x5, fg0, x0
 

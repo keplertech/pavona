@@ -4,10 +4,11 @@ There are two ways to install Pavona: the first is to run `git clone` and pull t
 Cloning the repo is the default method, as the repo utilizes some of the features of git to track changes, but the repo can still be used without being a git repo.
 
 There are a few different ways in which the repo tries to use git that should be considered if you are using the "gitless" version of the repo:
-* The repo may try to find its own top directory using git.
-* The repo may try to get the hash of the current git commit or diff in order to track new changes.
-* The repo may use git branch or commit details to create new (state-specific) directories.
-* The repo will use git commands to vendor in code from other git repos.
+
+- The repo may try to find its own top directory using git.
+- The repo may try to get the hash of the current git commit or diff in order to track new changes.
+- The repo may use git branch or commit details to create new (state-specific) directories.
+- The repo will use git commands to vendor in code from other git repos.
 
 If you are using the gitless tarball version of this repo, below are the ways the default repo behavior changes given that the repo is not a git repo.
 Note that there is nothing stopping you from uncompressing the tarball, installing the repo requirements, and running `git init` to make it a new git repository with fresh history.
@@ -43,7 +44,7 @@ Using the gitless repo does not have the same capabilities.
 
 Many of the scripts in the `ci/scripts` directory use git in order to limit their linting/file checking scope.
 They cannot be used in the gitless package, as they will error out.
-These files include (under `ci/scripts`): [`python-lint.sh`](../../ci/scripts/python-lint.sh), [`include-guard.sh`](../../ci/scripts/include-guard.sh), [`clang-format.sh`](../../ci/scripts/clang-format.sh), [`rust-format.sh`](../../ci/scripts/rust-format.sh), [`whitespace.sh`](../../ci/scripts/whitespace.sh), [`check-licence-headers.sh`](../../ci/scripts/whitespace.sh), [`lint-commits.sh`](../../ci/scripts/lint-commits.sh).
+These files include (under `ci/scripts`): [`python-lint.sh`](../../ci/scripts/python-lint.sh), [`include-guard.sh`](../../ci/scripts/include-guard.sh), [`whitespace.sh`](../../ci/scripts/whitespace.sh), [`check-licence-headers.sh`](../../ci/scripts/whitespace.sh), [`lint-commits.sh`](../../ci/scripts/lint-commits.sh).
 Other similarly constrained files include: [`util/lint_commits.py`](../../util/lint_commits.py), [`util/diff_generated_util_output.py`](../../util/diff_generated_util_output.py).
 
 A similar git functionality that simply cannot be replicated in the gitless release is git bisect, which traverses git history.

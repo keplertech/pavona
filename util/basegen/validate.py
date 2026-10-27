@@ -17,6 +17,7 @@ from .lib import REPO_TOP, import_hjson
 
 SCHEMA_DIRS = {REPO_TOP / "util" / "basegen" / "schemas",
                REPO_TOP / "util" / "ipgen" / "schemas",
+               REPO_TOP / "util" / "raclgen" / "schemas",
                REPO_TOP / "util" / "reggen" / "schemas",
                REPO_TOP / "util" / "tlgen" / "schemas",
                REPO_TOP / "util" / "topgen" / "schemas"}
@@ -25,7 +26,7 @@ BUILTIN_SCHEMAS = []
 for sd in SCHEMA_DIRS:
     BUILTIN_SCHEMAS += list(import_hjson(hj) for hj in sd.rglob("*.hjson"))
 BUILTIN_SCHEMAS_REGISTRY = SchemaRegistry().with_resources(
-    (s["$id"], SchemaResource(contents=s, specification=DRAFT202012))
+    (s["$id"], DRAFT202012.create_resource(s))
     for s in BUILTIN_SCHEMAS).crawl()
 
 
@@ -106,7 +107,13 @@ def document_schema(outfile: TextIO | None,
 ##############
 
 TOPCFG_VALIDATOR = create_validator("urn:topgen:topcfg")
+
 IP_BLOCK_VALIDATOR = create_validator("urn:reggen:ip_block")
+
 XBAR_VALIDATOR = create_validator("urn:tlgen:xbar")
+
 TPL_PARAM_VALIDATOR = create_validator("urn:ipgen:template_parameter")
 IP_CONFIG_VALIDATOR = create_validator("urn:ipgen:ip_config")
+
+RACL_VALIDATOR = create_validator("urn:raclgen:racl")
+RACL_MAPPING_VALIDATOR = create_validator("urn:raclgen:mapping")

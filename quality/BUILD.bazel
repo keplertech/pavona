@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("@aspect_rules_lint//format:defs.bzl", "format_multirun", "format_test")
+load("@buildifier_prebuilt//:rules.bzl", "buildifier_test")
 load("@ot_python_deps//:requirements.bzl", "requirement")
 load("@rules_python//python:defs.bzl", "py_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
@@ -51,12 +52,6 @@ py_test(
 acc_clobbered_regs_test(
     name = "acc_clobbered_regs",
     skip = [
-        # TODO: Support separate UNPROTECTED and HARDENED annotations.
-        "crypto_kem_dec",
-        "crypto_kem_keypair",
-        "indcpa_dec",
-        "indcpa_enc_cmp",
-        "indcpa_keypair",
         # TODO: Support WDR indices the analysis cannot resolve.
         "check_p",
         "check_q",
@@ -129,6 +124,7 @@ format_test(
     name = "format_check",
     c = ":clang-format",
     cc = ":clang-format",
+    fix_target = ":format",
     no_sandbox = True,
     rust = ":rustfmt",
     starlark = ":buildifier",
@@ -174,7 +170,43 @@ alias(
 # Check formatting for all Bazel `BUILD` and `.bzl` files.
 test_suite(
     name = "buildifier_check",
-    tests = [":format_check_Starlark_with_buildifier"],
+    tests = [
+        ":buildifier_lint_check",
+        ":format_check_Starlark_with_buildifier",
+    ],
+)
+
+buildifier_test(
+    name = "buildifier_lint_check",
+    exclude_patterns = ["*/vendor/*"],
+    lint_mode = "warn",
+    lint_warnings = [
+        "-attr-cfg",
+        "-constant-glob",
+        "-dict-method-named-arg",
+        "-function-docstring",
+        "-function-docstring-args",
+        "-function-docstring-header",
+        "-function-docstring-return",
+        "-list-append",
+        "-load-on-top",
+        "-module-docstring",
+        "-name-conventions",
+        "-no-effect",
+        "-out-of-order-load",
+        "-package-on-top",
+        "-positional-args",
+        "-print",
+        "-provider-params",
+        "-return-value",
+        "-same-origin-load",
+        "-uninitialized",
+        "-unnamed-macro",
+        "-unused-variable",
+    ],
+    mode = "check",
+    no_sandbox = True,
+    workspace = "//:MODULE.bazel",
 )
 
 # TODO(dmcardle) Add more targets that should be automatically checked with

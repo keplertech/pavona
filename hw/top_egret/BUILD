@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 load("//hw/top_egret:defs.bzl", "EGRET_SLOTS")
+load("//hw/top_egret/data/autogen:defs.bzl", "EGRET_IPS")
 load(
     "//rules:manifest.bzl",
     "manifest",
@@ -20,7 +21,6 @@ load(
     "sim_qemu",
     "sim_verilator",
 )
-load("//rules/pavona:qemu.bzl", "qemu_cfg", "qemu_flash", "qemu_otp")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -65,6 +65,36 @@ filegroup(
 CLEAR_MANIFEST = manifest(d = {
     "name": "none_manifest",
 })
+
+###########################################################################
+# Hardware generation
+###########################################################################
+
+filegroup(
+    name = "generated",
+    srcs = [
+        "//hw/top_egret/data:completecfg",
+    ] + [ip.attrs.get("regs", None) for ip in EGRET_IPS],
+)
+
+filegroup(
+    name = "gen",
+    srcs = [
+        "//hw/top_egret/data:gen_completecfg",
+    ] + [ip.attrs.get("regs", "").replace("regs", "gen_regs") for ip in EGRET_IPS],
+    data = [":generated"],
+)
+
+genrule(
+    name = "generate_hw",
+    srcs = [
+        ":gen",
+        ":generated",
+    ],
+    outs = ["hw.bash"],
+    cmd = "for src in $(execpaths :gen); do echo $$src; done > $@",
+    executable = True,
+)
 
 ###########################################################################
 # FPGA CW310 Environments

@@ -16,17 +16,18 @@
 #define NSHARES 1
 #endif
 
+#ifndef HARDENED
 /**
  * Re-encryption and ciphertext comparison for the decapsulation check.
  *
  * Use the encryption key to encrypt a plaintext message using the randomness r.
  * Compare the re-encrypted ciphertext with the input public ciphertext.
  *
- * Let d = NSHARES, cv = 32 * dv and cu = 32 * du, that is cv = 128 and cu = 320
+ * Let cv = 32 * dv and cu = 32 * du, that is cv = 128 and cu = 320
  * bytes for k = 2, 3 and cv = 160 and cu = 352 bytes for k = 4. The input
  * ciphertext is laid out as c = u || v, with u in c[0 : k * cu] and v in
  * c[k * cu : k * cu + cv].
- *  Step 1: kpoly = poly_frommsg(m)       // masked_poly_frommsg(m) when d > 1
+ *  Step 1: kpoly = poly_frommsg(m)
  *  Step 2: recompute v and compare it against c[k * cu : k * cu + cv].
  *          for i = 0..k - 1:
  *            ek_pke[i] = poly_frombytes(ek_pke[384 * i : 384 * (i + 1)])
@@ -39,7 +40,7 @@
  *            b    = sum_j at[i][j] * sp[j], j = 0..k - 1  // at[i][j] from rho
  *            b    = intt(b) + ep[i]                       // ep[i]: nonce k + i
  *            acc |= compare(poly_polyvec_compress(b), c[i * cu : (i + 1) * cu])
- *  Step 4: w0 = acc                      // finalize_cmp + unmask when d > 1
+ *  Step 4: w0 = acc
  *
  * @param[in]  x10: dmem pointer to the input message m
  * @param[in]  x11: dmem pointer to the input packed public key ek_pke
@@ -47,26 +48,65 @@
  * @param[in]  x13: dmem pointer to the input ciphertext c to compare against
  * @param[in]  x15: k, the security level
  * @param[out] w0: comparison result; 0 if the ciphertexts match and all-ones
- *                 otherwise for UNPROTECTED, 1 if they match and 0 otherwise
- *                 for HARDENED
+ *                 otherwise
  * @param[in]  w16 (sw0): sw0.0 = q = 3329 (1st 16-bit lane),
  *                        sw0.2 = -q^-1 mod 2^16 = 3327 (3rd 16-bit lane)
  * @param[in]  w31: all-zero register
  *
- * UNPROTECTED
  * clobbered registers: x2 to x13, x18 to x19, x21 to x28,
  *                      w0 to w15, w17 to w26, mod, acch, acc
- * clobbered flag groups: FG0
- *
- * HARDENED
- * clobbered registers: x2 to x19, x21 to x24, x26 to x31,
- *                      w0 to w15, w17 to w30, acc, mod, acch
  * clobbered flag groups: FG0
  */
 
 .globl indcpa_enc_cmp
 .type indcpa_enc_cmp, @function
 indcpa_enc_cmp:
+#else
+/**
+ * Masked re-encryption and ciphertext comparison for the decapsulation check.
+ *
+ * Use the encryption key to encrypt a plaintext message using the randomness r.
+ * Compare the re-encrypted ciphertext with the input public ciphertext.
+ *
+ * Let cv = 32 * dv and cu = 32 * du, that is cv = 128 and cu = 320
+ * bytes for k = 2, 3 and cv = 160 and cu = 352 bytes for k = 4. The input
+ * ciphertext is laid out as c = u || v, with u in c[0 : k * cu] and v in
+ * c[k * cu : k * cu + cv].
+ *  Step 1: kpoly = masked_poly_frommsg(m)
+ *  Step 2: recompute v and compare it against c[k * cu : k * cu + cv].
+ *          for i = 0..k - 1:
+ *            ek_pke[i] = poly_frombytes(ek_pke[384 * i : 384 * (i + 1)])
+ *            sp[i]     = poly_getnoise_eta_1(r, i)       // nonce i
+ *            v        += ek_pke[i] * ntt(sp[i])
+ *          v   = intt(v) + kpoly + epp                   // epp: nonce 2 * k
+ *          acc = compare(poly_compress(v), c[k * cu : k * cu + cv])
+ *  Step 3: recompute u and compare each row against c[i * cu : (i + 1) * cu].
+ *          for i = 0..k - 1:
+ *            b    = sum_j at[i][j] * sp[j], j = 0..k - 1  // at[i][j] from rho
+ *            b    = intt(b) + ep[i]                       // ep[i]: nonce k + i
+ *            acc |= compare(poly_polyvec_compress(b), c[i * cu : (i + 1) * cu])
+ *  Step 4: w0 = acc                      // finalize_cmp, then unmask
+ *
+ * @param[in]  x10: dmem pointer to the input Boolean-shared message m
+ * @param[in]  x11: dmem pointer to the input packed public key ek_pke
+ * @param[in]  x12: dmem pointer to the input randomness r (32 bytes)
+ * @param[in]  x13: dmem pointer to the input ciphertext c to compare against
+ * @param[in]  x15: k, the security level
+ * @param[out] w0: comparison result; 1 if the ciphertexts match and 0
+ *                 otherwise
+ * @param[in]  w16 (sw0): sw0.0 = q = 3329 (1st 16-bit lane),
+ *                        sw0.2 = -q^-1 mod 2^16 = 3327 (3rd 16-bit lane)
+ * @param[in]  w31: all-zero register
+ *
+ * clobbered registers: x2 to x19, x21 to x24, x26 to x31,
+ *                      w0 to w15, w17 to w30, acc, mod, acch
+ * clobbered flag groups: FG0
+ */
+
+.globl indcpa_enc_cmp_hardened
+.type indcpa_enc_cmp_hardened, @function
+indcpa_enc_cmp_hardened:
+#endif
   addi x2, x2, -32
   sw   x3, 0(x2)
   add  x3, x2, x0
@@ -123,7 +163,7 @@ _continue_compute_v:
   add    x10, x18, x0
   la     x11, nonce
   bn.xor w0, w0, w0
-  bn.sid x0, 0(x11)
+  bn.sd  w0, 0(x11)
   jal    x1, poly_getnoise_eta_init
 
   /* Unpack ek_pke[0]. */
@@ -323,7 +363,7 @@ _handle_k2_compute_v:
   add    x10, x9, x0
   la     x11, seed_ij
   bn.xor w0, w0, w0
-  bn.sid x0, 0(x11)
+  bn.sd  w0, 0(x11)
   jal    x1, poly_gen_matrix_init
 
   /* Compress v. */
@@ -338,21 +378,19 @@ _handle_k2_compute_v:
   loop x21, 1
     add x6, x6, x27
   endloop
-  addi x4, x0, 1
   srli x7, x26, 5
 
   bn.subi w2, w31, 1
   bn.mov  w4, w31
   loop x7, 5
-    bn.lid x0, 0(x5++)
-    bn.lid x4, 0(x6++)
+    bn.ld  w0, 0(x5++)
+    bn.ld  w1, 0(x6++)
     bn.cmp w0, w1
     bn.sel w3, w31, w2, FG0.Z
     bn.or  w4, w4, w3
   endloop
   /* First write to r; the later compares read-modify-write it. */
-  addi   x4, x0, 4
-  bn.sid x4, 0(x2)
+  bn.sd  w4, 0(x2)
   /**************************************************************************/
 
 
@@ -387,7 +425,7 @@ _handle_k2_compute_v:
   addi x23, x23, -1
 
   /* Loop over i = 1..k - 1. */
-  loop x8, 110
+  loop x8, 109
     /* Generate at[i][0]. */
     la  x11, poly_at
     jal x1, poly_gen_matrix
@@ -492,20 +530,19 @@ _handle_k2_compute_v:
     add  x5, x25, x0
     add  x6, x19, x0
     srli x7, x27, 5
-    addi x4, x0, 1
 
     bn.subi w2, w31, 1
     bn.mov  w4, w31
     loop x7, 5
-      bn.lid x0, 0(x5++)
-      bn.lid x4, 0(x6++)
+      bn.ld  w0, 0(x5++)
+      bn.ld  w1, 0(x6++)
       bn.cmp w0, w1
       bn.sel w3, w31, w2, FG0.Z
       bn.or  w4, w4, w3
     endloop
-    bn.lid x0, 0(x2)
+    bn.ld  w0, 0(x2)
     bn.or  w0, w0, w4
-    bn.sid x0, 0(x2)
+    bn.sd  w0, 0(x2)
     add    x19, x19, x27
   endloop
 
@@ -593,19 +630,18 @@ _handle_k2_compute_v:
   add  x5, x25, x0
   add  x6, x19, x0
   srli x7, x27, 5
-  addi x4, x0, 1
 
   bn.subi w2, w31, 1
   bn.mov  w4, w31
   loop x7, 5
-    bn.lid x0, 0(x5++)
-    bn.lid x4, 0(x6++)
+    bn.ld  w0, 0(x5++)
+    bn.ld  w1, 0(x6++)
     bn.cmp w0, w1
     bn.sel w3, w31, w2, FG0.Z
     bn.or  w4, w4, w3
   endloop
   /*** Step 4: w0 = acc. ***/
-  bn.lid x0, 0(x2)
+  bn.ld  w0, 0(x2)
   bn.or  w0, w0, w4 /* w0 is the comparison result. */
   /**************************************************************************/
   /* Restore x2 and x3. */
@@ -693,20 +729,19 @@ _handle_k2_compute_b:
   add  x5, x25, x0
   add  x6, x19, x0 /* c[i * cu : (i + 1) * cu] */
   srli x7, x27, 5
-  addi x4, x0, 1
 
   bn.subi w2, w31, 1
   bn.mov  w4, w31
   loop x7, 5
-    bn.lid x0, 0(x5++)
-    bn.lid x4, 0(x6++)
+    bn.ld  w0, 0(x5++)
+    bn.ld  w1, 0(x6++)
     bn.cmp w0, w1
     bn.sel w3, w31, w2, FG0.Z
     bn.or  w4, w4, w3
   endloop
-  bn.lid x0, 0(x2)
+  bn.ld  w0, 0(x2)
   bn.or  w0, w0, w4
-  bn.sid x0, 0(x2)
+  bn.sd  w0, 0(x2)
 
   /* Generate at[1][0]. */
   la  x11, poly_at
@@ -767,19 +802,18 @@ _handle_k2_compute_b:
   add  x5, x25, x0
   addi x6, x19, 320 /* c[i * cu : (i + 1) * cu] */
   srli x7, x27, 5
-  addi x4, x0, 1
 
   bn.subi w2, w31, 1
   bn.mov  w4, w31
   loop x7, 5
-    bn.lid x0, 0(x5++)
-    bn.lid x4, 0(x6++)
+    bn.ld  w0, 0(x5++)
+    bn.ld  w1, 0(x6++)
     bn.cmp w0, w1
     bn.sel w3, w31, w2, FG0.Z
     bn.or  w4, w4, w3
   endloop
   /*** Step 4: w0 = acc. ***/
-  bn.lid x0, 0(x2)
+  bn.ld  w0, 0(x2)
   bn.or  w0, w0, w4 /* w0 is the comparison result. */
   /**************************************************************************/
   add  x2, x3, x0
@@ -804,9 +838,8 @@ _continue:
 
   /* The first share of r is (1 << N) - 1. The other shares are 0. */
   bn.subi w0, w31, 1
-  bn.sid  x0, 0(x2)
-  addi    x4, x0, 31
-  bn.sid  x4, 32(x2)
+  bn.sd   w0, 0(x2)
+  bn.sd   w31, 32(x2)
 
   /*** Step 1: kpoly = masked_poly_frommsg(m). ***/
   /* x10 already points to m. */
@@ -837,8 +870,7 @@ _continue_compute_v:
   /* Prepare for initial `poly_getnoise_eta_1` call: generate sp. */
   add    x10, x18, x0
   la     x11, nonce
-  addi   x4, x0, 31
-  bn.sid x4, 0(x11)
+  bn.sd  w31, 0(x11)
   jal    x1, masked_poly_getnoise_eta_init
 
   /* Unpack ek_pke[0]. */
@@ -1088,8 +1120,7 @@ _handle_k2_compute_v:
   /* Prepare for generating at[0][0]. */
   add    x10, x9, x0
   la     x11, seed_ij
-  addi   x4, x0, 31
-  bn.sid x4, 0(x11)
+  bn.sd  w31, 0(x11)
   jal    x1, poly_gen_matrix_init
 
   /* Compare v and c[k * cu :]. Output to r. */
@@ -1548,14 +1579,12 @@ _handle_k2_compute_b:
   /*** Step 4: w0 = acc, reduced by finalize_cmp and unmasked. ***/
 _finalize_compare:
   add x10, x2, x0
-  add x11, x0, NSHARES
   jal x1, finalize_cmp
 
   /* Unmask comparison result. */
   add    x10, x2, x0
-  bn.lid x0, 0(x10++)
-  addi   x4, x0, 1
-  bn.lid x4, 0(x10++)
+  bn.ld  w0, 0(x10++)
+  bn.ld  w1, 0(x10++)
   bn.xor w0, w0, w1
 
   add  x2, x3, x0

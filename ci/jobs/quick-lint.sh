@@ -26,43 +26,93 @@ case $# in
         exit 1
 esac
 
-echo "### Display environment information"
-ci/scripts/show-env.sh
 
-echo -e "\n### Check commit metadata"
-ci/scripts/lint-commits.sh $tgt_branch
-
-echo -e "\n### Check Licence Headers"
-ci/scripts/check-licence-headers.sh $tgt_branch
-
-echo -e "\n### Check executable bits"
-ci/scripts/exec-check.sh
-
-echo -e "\n### Check for non-ASCII characters in source code"
-ci/scripts/check-ascii.sh
-
-echo -e "\n### Run Python lint (flake8)"
-ci/scripts/python-lint.sh $tgt_branch || {
-    echo "(ignoring python lint errors)"
+section() {
+    if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+        echo "::group::$1"
+    else
+        echo -e "\n### $1"
+    fi
 }
 
-echo -e "\n### Run Python lint (mypy)"
+section_end() {
+    if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+        echo "::endgroup::"
+    fi
+}
+
+section "Display environment information"
+ci/scripts/show-env.sh
+section_end
+
+section "Check commit metadata"
+ci/scripts/lint-commits.sh $tgt_branch
+section_end
+
+section "Check Licence Headers"
+ci/scripts/check-licence-headers.sh $tgt_branch
+section_end
+
+section "Check executable bits"
+ci/scripts/exec-check.sh
+section_end
+
+section "Check for non-ASCII characters in source code"
+ci/scripts/check-ascii.sh
+section_end
+
+section "Check Bazel build graph"
+./bazelisk.sh build --nobuild //...
+section_end
+
+section "Run Python lint (flake8)"
+ci/scripts/python-lint.sh $tgt_branch
+section_end
+
+section "Run Python lint (mypy)"
 ci/scripts/mypy.sh $tgt_branch
+section_end
 
-echo -e "\n### Validate testplans with schema."
+section "Python (ruff)"
+ruff check
+section_end
+
+section "Validate testplans with schema."
 ci/scripts/validate_testplans.sh
+section_end
 
-echo -e "\n### Use clang-format to check C/C++ coding style"
-ci/scripts/clang-format.sh $tgt_branch
+section "Use clang-format to check C/C++ coding style"
+./bazelisk.sh test //quality:clang_format_check
+section_end
 
-echo -e "\n### Check formatting on header guards"
+section "Check formatting on header guards"
 ci/scripts/include-guard.sh $tgt_branch
+section_end
 
-echo -e "\n### Use rustfmt to check Rust coding style"
-ci/scripts/rust-format.sh $tgt_branch
+section "Use rustfmt to check Rust coding style"
+./bazelisk.sh test //quality:rustfmt_check
+section_end
 
-echo -e "\n### Run shellcheck on all shell scripts"
-util/sh/scripts/run-shellcheck.sh
+section "Use buildifier to check Bazel coding style"
+bazel test //quality:buildifier_check --test_output=streamed
+section_end
 
-echo -e "\n### Check what kinds of changes the PR contains"
-ci/scripts/get-build-type.sh $tgt_branch PullRequest
+section "Run shellcheck on all shell scripts"
+./bazelisk.sh test //quality:shellcheck_check
+section_end
+
+section "Trailing whitespace"
+ci/scripts/whitespace.sh "$tgt_branch"
+section_end
+
+section "Broken links"
+ci/scripts/check-links.sh
+section_end
+
+section "Lint Doxygen comments (cryptolib)"
+./bazelisk.sh run @doxygen//:bin/doxygen quality/Doxyfile.lint
+section_end
+
+section "Lock files"
+ci/scripts/check-lock-files.sh
+section_end
