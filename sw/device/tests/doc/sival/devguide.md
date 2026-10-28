@@ -189,7 +189,7 @@ Configuration:
 
 ```python
 {
-    rom = "//sw/device/silicon_creator/rom:mask_rom",
+    rom = "//sw/device/silicon_creator/rom:rom",
     otp = "//hw/top_egret/data/otp/emulation:otp_img_prod_manuf_personalized",
 }
 ```

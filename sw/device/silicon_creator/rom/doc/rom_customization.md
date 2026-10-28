@@ -97,5 +97,5 @@ Unlike the state run callback, ROM state hooks cannot determine the next state i
 Similar to the existing manufacturing and test hook customization framework, custom ROM state hooks can be included in a ROM image by specifying the path to the vendor hook implementations in an environment variable passed to the ROM build system:
 
 ``` bash
-ROM_HOOKS_DIR=/PATH/TO/LOCAL/ROM/HOOKS ./bazelisk.sh build //sw/device/silicon_creator/rom:mask_rom
+ROM_HOOKS_DIR=/PATH/TO/LOCAL/ROM/HOOKS ./bazelisk.sh build //sw/device/silicon_creator/rom:rom
 ```

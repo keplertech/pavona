@@ -43,13 +43,14 @@ strap_combinations_test(
         # thing: whether the chip can read the weak/strong values.
         #"//hw/top_egret:sim_verilator": ":straps_unsigned",
 
-        # When running against the mask_rom, we don't want a binary loaded
-        # so that sigverify will be skipped and the ROM will fault quickly.
+        # When running against //sw/device/silicon_creator/rom:rom, we don't
+        # want a binary loaded so that sigverify will be skipped and the ROM
+        # will fault quickly.
         # We'll detect whether or not the two strap combinations known to
         # the ROM affect its execution correctly.  In all other cases,
         # observing a fault is the correct outcome.
         #
-        # We want the mask_rom variant enabled because it tests that the
+        # We want the "rom" variant enabled because it tests that the
         # ROM recognizes its two strapping values and no others.
         "//hw/top_egret:sim_verilator_rom_with_fake_keys": "empty.vmem",
     },

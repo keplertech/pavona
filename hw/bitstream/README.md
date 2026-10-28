@@ -77,7 +77,7 @@ pavona_test(
     name = "individualize_sw_cfg_functest",
     srcs = ["individualize_sw_cfg_functest.c"],
     fpga = fpga_params(
-        bitstream = "//hw/bitstream:mask_rom_otp_test_unlocked0",
+        bitstream = "//hw/bitstream:custom_bitstream_target",
         tags = ["manuf"],
     ),
     exec_env = {
